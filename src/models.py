@@ -10,6 +10,9 @@ import xgboost as xgb
 
 from base_models import NeuralNetwork, ParallelNetworks
 
+from transformers.models.gpt2.modeling_gpt2 import GPT2Attention
+
+from transformers import MambaModel as HFMambaModel, MambaConfig
 
 def build_model(conf):
     if conf.family == "gpt2":
@@ -19,6 +22,24 @@ def build_model(conf):
             n_embd=conf.n_embd,
             n_layer=conf.n_layer,
             n_head=conf.n_head,
+        )
+    elif conf.family == "flashattn":
+        model = FlashAttnModel(
+            n_dims=conf.n_dims,
+            n_positions=conf.n_positions,
+            n_embd=conf.n_embd,
+            n_layer=conf.n_layer,
+            n_head=conf.n_head,
+        )
+    elif conf.family == "mamba":
+        model = MambaModel(
+            n_dims        = conf.n_dims,
+            n_positions   = conf.n_positions,
+            n_embd        = conf.n_embd,
+            n_layer       = conf.n_layer,
+            state_size    = getattr(conf, "state_size", 16),
+            conv_kernel   = getattr(conf, "conv_kernel", 4),
+            expand        = getattr(conf, "expand", 2),
         )
     else:
         raise NotImplementedError
@@ -75,6 +96,152 @@ def get_relevant_baselines(task_name):
 
     models = [model_cls(**kwargs) for model_cls, kwargs in task_to_baselines[task_name]]
     return models
+
+
+class FlashAttnModel(nn.Module):
+    def __init__(self,
+                 n_dims,
+                 n_positions,
+                 n_embd=128,
+                 n_layer=12,
+                 n_head=4):
+        super().__init__()
+
+        cfg = GPT2Config(
+            n_positions = 2 * n_positions,
+            n_embd = n_embd,
+            n_layer = n_layer,
+            n_head = n_head,
+            resid_pdrop = 0.0,
+            embd_pdrop = 0.0,
+            attn_pdrop = 0.0,
+            use_cache = False,
+        )
+
+        self.name = f"gpt2_flash_embd={n_embd}_layer={n_layer}_head={n_head}"
+        self.n_positions = n_positions
+        self.n_dims = n_dims
+
+        self._read_in = nn.Linear(n_dims, n_embd)
+        self._backbone = GPT2Model(cfg)
+        self._read_out = nn.Linear(n_embd, 1)
+
+        for mod in self._backbone.modules():
+            if isinstance(mod, GPT2Attention):
+                gpt2_attn_to_flash(mod)
+
+    @staticmethod
+    def _combine(xs_b: torch.Tensor, ys_b: torch.Tensor) -> torch.Tensor:
+        B, K, D = xs_b.shape
+        ys_exp   = torch.cat((
+                       ys_b.view(B, K, 1),
+                       torch.zeros(B, K, D - 1, device=ys_b.device)
+                   ), dim=2)
+        zs = torch.stack((xs_b, ys_exp), dim=2).view(B, 2 * K, D)
+        return zs
+
+    def forward(self, xs, ys, inds=None):
+        if inds is None:
+            inds = torch.arange(ys.shape[1], device=ys.device)
+        else:
+            inds = torch.as_tensor(inds, device=ys.device)
+
+        if (inds.max() >= ys.shape[1]) or (inds.min() < 0):
+            raise ValueError("inds contain out‑of‑range indices")
+
+        tokens = self._combine(xs, ys)
+        embeds = self._read_in(tokens)
+        h = self._backbone(inputs_embeds=embeds).last_hidden_state
+        preds = self._read_out(h)
+
+        return preds[:, ::2, 0][:, inds]
+
+
+def gpt2_attn_to_flash(attn: GPT2Attention):
+
+    def _flash_attn(self, query, key, value, attention_mask=None, head_mask=None):
+        if attention_mask is not None:
+            bool_mask = attention_mask.eq(0)
+        else:
+            bool_mask = None
+
+        attn_out = F.scaled_dot_product_attention(
+            query, key, value,
+            attn_mask = bool_mask,
+            dropout_p = self._flash_dropout.p if self.training else 0.0,
+            is_causal = True,
+        )
+        return attn_out
+
+    if hasattr(attn, "attn_dropout"):
+        dropout_layer = attn.attn_dropout
+    elif hasattr(attn, "dropout"):
+        dropout_layer = attn.dropout
+    else:
+        dropout_layer = nn.Dropout(p=0.0)
+        attn.register_module("attn_dropout", dropout_layer)
+
+    attn._flash_dropout = dropout_layer
+
+
+class MambaModel(nn.Module):
+
+    def __init__(
+        self,
+        n_dims,
+        n_positions,
+        n_embd=128,
+        n_layer=12,
+        state_size=64,
+        conv_kernel=4,
+        expand=2,
+    ):
+        super().__init__()
+
+        cfg = MambaConfig(
+            hidden_size = n_embd,
+            num_hidden_layers = n_layer,
+            state_size = state_size,
+            conv_kernel = conv_kernel,
+            expand = expand,
+            use_cache = False,
+        )
+
+        self.name = (
+            f"mamba_embd={n_embd}_layer={n_layer}_state={state_size}_conv={conv_kernel}"
+        )
+        self.n_positions = n_positions
+        self.n_dims = n_dims
+
+        self._read_in = nn.Linear(n_dims, n_embd)
+        self._backbone = HFMambaModel(cfg)
+        self._read_out = nn.Linear(n_embd, 1)
+
+    @staticmethod
+    def _combine(xs_b: torch.Tensor, ys_b: torch.Tensor) -> torch.Tensor:
+        B, K, D = xs_b.shape
+        ys_exp  = torch.cat(
+            (ys_b.view(B, K, 1), torch.zeros(B, K, D - 1, device=ys_b.device)),
+            dim=2,
+        )
+        zs = torch.stack((xs_b, ys_exp), dim=2).view(B, 2 * K, D)
+        return zs
+
+    def forward(self, xs, ys, inds=None):
+        if inds is None:
+            inds = torch.arange(ys.shape[1], device=ys.device)
+        else:
+            inds = torch.as_tensor(inds, device=ys.device)
+            if inds.max() >= ys.shape[1] or inds.min() < 0:
+                raise ValueError("inds contain indices where xs and ys are not defined")
+
+        tokens = self._combine(xs, ys)
+        embeds = self._read_in(tokens)
+        h = self._backbone(inputs_embeds=embeds).last_hidden_state
+        preds = self._read_out(h)
+
+        return preds[:, ::2, 0][:, inds]
+
 
 
 class TransformerModel(nn.Module):
