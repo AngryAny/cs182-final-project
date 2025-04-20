@@ -5,7 +5,7 @@ channels:
 dependencies:
   - pip=21.2.4
   - python=3.8.12
-  - pytorch=2.0.0  # Use PyTorch 2.0 or the latest compatible version
+  - pytorch=1.11.0
   - mkl=2024.0.0
   - pip:
     - jupyter==1.0.0
