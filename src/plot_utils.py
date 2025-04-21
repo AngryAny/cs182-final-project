@@ -43,6 +43,12 @@ relevant_model_names = {
         "3-Nearest Neighbors",
         "Averaging",
     ],
+    "linear_regression_flashattn": [
+        "linear_regression_flashattn",
+        "Least Squares",
+        "3-Nearest Neighbors",
+        "Averaging",
+    ],
 }
 
 
