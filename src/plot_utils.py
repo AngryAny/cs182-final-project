@@ -37,6 +37,12 @@ relevant_model_names = {
         "3-Nearest Neighbors",
         "2-layer NN, GD",
     ],
+    "linear_regression_mamba": [
+        "mamba_embd=256_layer=12_state=16_conv=4",
+        "Least Squares",
+        "3-Nearest Neighbors",
+        "Averaging",
+    ],
 }
 
 

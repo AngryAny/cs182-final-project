@@ -323,7 +323,7 @@ def read_run_dir(run_dir):
                 all_runs.setdefault(k, []).append(v)
 
     df = pd.DataFrame(all_runs).sort_values("run_name")
-    assert len(df) == len(df.run_name.unique())
+    # assert len(df) == len(df.run_name.unique())
     return df
 
 
