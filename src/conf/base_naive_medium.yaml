@@ -1,5 +1,5 @@
 inherit: 
-    - models/mamba.yaml
+    - models/naive_medium.yaml
     - wandb.yaml
 
 model:

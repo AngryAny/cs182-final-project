@@ -1,5 +1,5 @@
 inherit: 
-    - models/flashattn.yaml
+    - models/flashattn_medium.yaml
     - wandb.yaml
 
 model:

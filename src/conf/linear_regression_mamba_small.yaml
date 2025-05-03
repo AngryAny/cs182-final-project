@@ -1,17 +1,16 @@
 inherit: 
-    - base_mamba.yaml
+    - base_mamba_small.yaml
 
 training:
     task: linear_regression
     curriculum:
         points:
             start: 11
-            end: 41
+            end: 21
             inc: 2
             interval: 2000
 
-out_dir: ../models/linear_regression_mamba
+out_dir: ../models/linear_regression
 
 wandb:
-    name: "linear_regression_mamba"
-
+    name: "linear_regression_mamba_small"
