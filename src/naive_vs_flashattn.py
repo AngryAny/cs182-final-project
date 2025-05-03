@@ -117,8 +117,13 @@ def compare_with_naive():
     
     # Test with very long sequences to see memory difference
     test_configs = [
-        {"batch_size": 2, "seq_length": 1024, "n_dims": 32, "n_embd": 256, "n_layer": 2, "n_head": 8},
-        {"batch_size": 2, "seq_length": 2048, "n_dims": 32, "n_embd": 256, "n_layer": 2, "n_head": 8},
+        {"batch_size": 64, "seq_length": 21, "n_dims": 10, "n_embd": 128, "n_layer": 6, "n_head": 4},
+        {"batch_size": 64, "seq_length": 41, "n_dims": 20, "n_embd": 256, "n_layer": 12, "n_head": 8},
+        {"batch_size": 64, "seq_length": 81, "n_dims": 40, "n_embd": 256, "n_layer": 24, "n_head": 8},
+        {"batch_size": 64, "seq_length": 1024, "n_dims": 40, "n_embd": 256, "n_layer": 24, "n_head": 8},
+
+        {"batch_size": 1, "seq_length": 1024, "n_dims": 32, "n_embd": 256, "n_layer": 2, "n_head": 8},
+        {"batch_size": 1, "seq_length": 2048, "n_dims": 32, "n_embd": 256, "n_layer": 2, "n_head": 8},
         {"batch_size": 1, "seq_length": 4096, "n_dims": 32, "n_embd": 256, "n_layer": 2, "n_head": 8},
     ]
     
