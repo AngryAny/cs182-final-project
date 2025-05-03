@@ -8,6 +8,7 @@ from sklearn.linear_model import LogisticRegression, Lasso
 import warnings
 from sklearn import tree
 import xgboost as xgb
+import math
 
 from base_models import NeuralNetwork, ParallelNetworks
 
@@ -26,6 +27,14 @@ def build_model(conf):
         )
     elif conf.family == "flashattn":
         model = FlashAttnModel(
+            n_dims=conf.n_dims,
+            n_positions=conf.n_positions,
+            n_embd=conf.n_embd,
+            n_layer=conf.n_layer,
+            n_head=conf.n_head,
+        )
+    elif conf.family == "naive":
+        model = NaiveAttentionModel(
             n_dims=conf.n_dims,
             n_positions=conf.n_positions,
             n_embd=conf.n_embd,
@@ -97,6 +106,113 @@ def get_relevant_baselines(task_name):
 
     models = [model_cls(**kwargs) for model_cls, kwargs in task_to_baselines[task_name]]
     return models
+
+class NaiveAttentionModel(nn.Module):
+    """Model using naive attention implementation for comparison"""
+    def __init__(self, n_dims, n_positions, n_embd=128, n_layer=12, n_head=4):
+        super().__init__()
+        self.name = f"naive_embd={n_embd}_layer={n_layer}_head={n_head}"
+        self.n_positions = n_positions
+        self.n_dims = n_dims
+        self.n_embd = n_embd
+        self.n_head = n_head
+        
+        self._read_in = nn.Linear(n_dims, n_embd)
+        self.layers = nn.ModuleList([
+            NaiveAttentionLayer(n_embd, n_head) for _ in range(n_layer)
+        ])
+        self._read_out = nn.Linear(n_embd, 1)
+    
+    def _combine(self, xs_b, ys_b):
+        B, K, D = xs_b.shape
+        ys_exp = torch.cat((
+            ys_b.view(B, K, 1),
+            torch.zeros(B, K, D - 1, device=ys_b.device)
+        ), dim=2)
+        zs = torch.stack((xs_b, ys_exp), dim=2).view(B, 2 * K, D)
+        return zs
+    
+    def forward(self, xs, ys, inds=None):
+        if inds is None:
+            inds = torch.arange(ys.shape[1], device=ys.device)
+        else:
+            inds = torch.as_tensor(inds, device=ys.device)
+            if inds.max() >= ys.shape[1] or inds.min() < 0:
+                raise ValueError("inds contain out‑of‑range indices")
+        
+        tokens = self._combine(xs, ys)
+        x = self._read_in(tokens)
+        
+        for layer in self.layers:
+            x = layer(x)
+        
+        preds = self._read_out(x)
+        return preds[:, ::2, 0][:, inds]
+
+
+class NaiveAttentionLayer(nn.Module):
+    def __init__(self, n_embd, n_head):
+        super().__init__()
+        assert n_embd % n_head == 0
+        self.n_head = n_head
+        self.head_dim = n_embd // n_head
+        
+        self.qkv = nn.Linear(n_embd, 3 * n_embd)
+        self.proj = nn.Linear(n_embd, n_embd)
+        self.ln1 = nn.LayerNorm(n_embd)
+        self.ln2 = nn.LayerNorm(n_embd)
+        self.mlp = nn.Sequential(
+            nn.Linear(n_embd, 4 * n_embd),
+            nn.GELU(),
+            nn.Linear(4 * n_embd, n_embd)
+        )
+    
+    def naive_attention(self, q, k, v):
+        """Naive attention implementation that uses more memory"""
+        B, H, L, D = q.shape
+        
+        # Compute attention scores
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(D)
+        
+        # Apply causal mask
+        causal_mask = torch.triu(torch.ones(L, L, device=q.device) * float('-inf'), diagonal=1)
+        scores = scores + causal_mask
+        
+        # Softmax
+        attn_weights = F.softmax(scores, dim=-1)
+        
+        # Apply attention
+        output = torch.matmul(attn_weights, v)
+        
+        return output
+    
+    def forward(self, x):
+        B, L, C = x.shape
+        
+        # Self-attention
+        residual = x
+        x = self.ln1(x)
+        
+        # QKV projection
+        qkv = self.qkv(x).reshape(B, L, 3, self.n_head, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        
+        # Apply naive attention
+        attn_output = self.naive_attention(q, k, v)
+        
+        # Reshape and project
+        attn_output = attn_output.transpose(1, 2).reshape(B, L, C)
+        attn_output = self.proj(attn_output)
+        
+        x = residual + attn_output
+        
+        # MLP
+        residual = x
+        x = self.ln2(x)
+        x = self.mlp(x)
+        x = residual + x
+        
+        return x
 
 
 class FlashAttnModel(nn.Module):
