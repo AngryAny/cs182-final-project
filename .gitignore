@@ -1,7 +1,7 @@
 .ipynb_checkpoints
 __pycache__
-models.zip
-models
+/models/
+!src/conf/models/
 
 update/
 */nohup.out

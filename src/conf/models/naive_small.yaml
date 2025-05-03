@@ -1,0 +1,5 @@
+model:
+    family: naive
+    n_embd: 128
+    n_layer: 6
+    n_head: 4
