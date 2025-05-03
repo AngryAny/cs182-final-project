@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers import GPT2Model, GPT2Config
 from tqdm import tqdm
 from sklearn.svm import LinearSVC
@@ -158,21 +159,29 @@ class FlashAttnModel(nn.Module):
 
 
 def gpt2_attn_to_flash(attn: GPT2Attention):
-
+    # Save original _attn method for reference if needed
+    original_attn = attn._attn
+    
     def _flash_attn(self, query, key, value, attention_mask=None, head_mask=None):
+        # Handle attention mask properly
         if attention_mask is not None:
-            bool_mask = attention_mask.eq(0)
+            # GPT2 uses 0 for masked positions and 1 for valid positions
+            # Flash attention expects True for masked positions
+            bool_mask = attention_mask == 0
         else:
             bool_mask = None
-
+        
+        # Use scaled_dot_product_attention with proper parameters
         attn_out = F.scaled_dot_product_attention(
             query, key, value,
-            attn_mask = bool_mask,
-            dropout_p = self._flash_dropout.p if self.training else 0.0,
-            is_causal = True,
+            attn_mask=bool_mask,
+            dropout_p=self.attn_dropout.p if self.training else 0.0,
+            is_causal=True,  # GPT2 uses causal attention
         )
-        return attn_out
-
+        
+        return attn_out, None  # Return None for attention weights
+    
+    # Get the dropout layer
     if hasattr(attn, "attn_dropout"):
         dropout_layer = attn.attn_dropout
     elif hasattr(attn, "dropout"):
@@ -180,8 +189,9 @@ def gpt2_attn_to_flash(attn: GPT2Attention):
     else:
         dropout_layer = nn.Dropout(p=0.0)
         attn.register_module("attn_dropout", dropout_layer)
-
-    attn._flash_dropout = dropout_layer
+    
+    # Actually replace the attention method
+    attn._attn = _flash_attn.__get__(attn, GPT2Attention)
 
 
 class MambaModel(nn.Module):
