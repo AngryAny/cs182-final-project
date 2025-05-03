@@ -1,0 +1,16 @@
+inherit: 
+    - base_naive_small.yaml
+
+training:
+    task: linear_regression
+    curriculum:
+        points:
+            start: 11
+            end: 255
+            inc: 4
+            interval: 2000
+
+out_dir: ../models/linear_regression
+
+wandb:
+    name: "linear_regression_naive_small"
