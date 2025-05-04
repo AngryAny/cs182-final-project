@@ -1,5 +1,5 @@
 inherit: 
-    - base_naive_small.yaml
+    - base_naive_long.yaml
 
 training:
     task: linear_regression
