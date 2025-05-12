@@ -13,7 +13,7 @@ You can start by cloning our repository and following the steps below.
     conda activate in-context-learning
     ```
 
-2. Download [model checkpoints](https://huggingface.co/llejj/Medium_Standard_Transformer/tree/main) from Huggingface.
+2. Download [model checkpoints](https://huggingface.co/llejj/CS182_Final_Project/tree/main) from Huggingface.
 
     Available pretrained models:
     - **Medium Standard Transformer**: `models/linear_regression/8db61f76-d342-4f02-9b37-a7009638c843`
