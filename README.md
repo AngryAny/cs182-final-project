@@ -13,12 +13,7 @@ You can start by cloning our repository and following the steps below.
     conda activate in-context-learning
     ```
 
-2. Download [model checkpoints](https://github.com/dtsip/in-context-learning/releases/download/initial/models.zip) and extract them in the current directory.
-
-    ```
-    wget https://github.com/dtsip/in-context-learning/releases/download/initial/models.zip
-    unzip models.zip
-    ```
+2. Download [model checkpoints](https://huggingface.co/llejj/Medium_Standard_Transformer/tree/main) from Huggingface.
 
     Available pretrained models:
     - **Medium Standard Transformer**: `models/linear_regression/8db61f76-d342-4f02-9b37-a7009638c843`
